@@ -3,7 +3,7 @@
    PWA离线缓存 + 推送支持
    ======================================== */
 
-const CACHE_NAME = 'chenzong-v2';
+const CACHE_NAME = 'chenzong-v3';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -42,33 +42,27 @@ self.addEventListener('activate', event => {
   );
 });
 
-// 拦截请求
+// 拦截请求 - Stale-while-revalidate 策略
 self.addEventListener('fetch', event => {
   event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        // 返回缓存或从网络获取
-        if (response) {
-          return response;
-        }
-        
-        return fetch(event.request).then(response => {
-          // 不缓存非正常响应
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response;
+    caches.open(CACHE_NAME).then(cache => {
+      return cache.match(event.request).then(cachedResponse => {
+        // 同时发起网络请求
+        const fetchPromise = fetch(event.request).then(networkResponse => {
+          // 如果网络请求成功，更新缓存
+          if (networkResponse && networkResponse.status === 200) {
+            cache.put(event.request, networkResponse.clone());
           }
-          
-          // 克隆响应
-          const responseToCache = response.clone();
-          
-          caches.open(CACHE_NAME)
-            .then(cache => {
-              cache.put(event.request, responseToCache);
-            });
-          
-          return response;
+          return networkResponse;
+        }).catch(() => {
+          // 网络失败时返回 null，后续会返回 cachedResponse
+          return null;
         });
-      })
+        
+        // 立即返回缓存（无论是否过期），同时在后台更新缓存
+        return cachedResponse || fetchPromise;
+      });
+    })
   );
 });
 
